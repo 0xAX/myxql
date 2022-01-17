@@ -28,6 +28,9 @@ defmodule MyXQL.Protocol do
 
   defp encode_packet(payload, payload_size, sequence_id, max_packet_size) do
     if payload_size > max_packet_size do
+      # TODO maybe use payload_size here
+      # rest_size = :erlang.byte_size(payload) - max_packet_size
+      # binary-size(rest_size)>> = IO.iodata_to_binary(payload)
       <<new_payload::size(max_packet_size)-binary, rest::binary>> = IO.iodata_to_binary(payload)
       rest_size = payload_size - max_packet_size
       next_sequence_id = if sequence_id < 255, do: sequence_id + 1, else: 0
@@ -41,30 +44,89 @@ defmodule MyXQL.Protocol do
     end
   end
 
-  def decode_generic_response(<<0x00, rest::bits>>) do
+  def decode_generic_response(<<0x00, rest::binary>>) do
     decode_ok_packet_body(rest)
   end
 
-  def decode_generic_response(<<0xFF, rest::bits>>) do
+  def decode_generic_response(<<0xFF, rest::binary>>) do
     decode_err_packet_body(rest)
   end
 
-  defp decode_ok_packet_body(rest) do
-    {affected_rows, rest} = take_int_lenenc(rest)
-    {last_insert_id, rest} = take_int_lenenc(rest)
+  defp decode_ok_packet_body(<<rest::binary>>) do
+    # :io.format("rest ~p~n", [rest])
+    {affected_rows, affected_rows_end} =
+      case rest do
+        <<0xFC, int::uint2, _rest::binary>> ->
+          {int, 3}
+        <<0xFD, int::uint3, _rest::binary>> ->
+          {int, 4}
+        <<0xFE, int::uint8, _rest::binary>> ->
+          {int, 9}
+        <<int::uint1, _rest::binary>> ->
+          {int, 1}
+      end
+
+    # affected_rows_offset = if affected_rows_offset == 1 do
+    #   0
+    # else
+    #   affected_rows_offset
+    # end
+    
+    # :io.format("affected_rows_offset ~p~n", [affected_rows ])
+    # :io.format("affected_rows_end ~p~n", [affected_rows_end])
+
+    {last_insert_id, last_insert_id_end} =
+      case rest do
+        <<_offt::binary-size(affected_rows_end), 0xFC, int::uint2, _rest::binary>> ->
+          {int, affected_rows_end + 3}
+        <<_offt::binary-size(affected_rows_end), 0xFD, int::uint3, _rest::binary>> ->
+          {int, affected_rows_end + 4}
+        <<_offt::binary-size(affected_rows_end), 0xFE, int::uint8, _rest::binary>> ->
+          {int, affected_rows_end + 9}
+        <<_offt::binary-size(affected_rows_end), int::uint1, _rest::binary>> ->
+          {int, affected_rows_end + 1}
+      end
+
+    # last_insert_id_offset = if last_insert_id_offset == 1 do
+    #   0
+    # else
+    #   last_insert_id_offset
+    # end
+
+    
+    # :io.format("last_insert_id ~p~n", [last_insert_id])
+    # :io.format("last_insert_id ~p~n", [last_insert_id_end])
+
+    # {affected_rows, rest} = take_int_lenenc(<<0xAA, rest::binary>>)
+    # {last_insert_id, rest} = take_int_lenenc(rest)
 
     <<
+       _offt::binary-size(last_insert_id_end),
+      # _a_offt::binary-size(affected_rows_offset),
+      # affected_rows::binary-size(affected_rows_len),
+      # _l_offt::binary-size(last_insert_id_offset),
+      # last_insert_id::binary-size(last_insert_id_len),
       status_flags::uint2,
       num_warnings::uint2,
-      info::binary
+      _info::binary
     >> = rest
+
+    # :io.format("status_flags ~p~n", [status_flags])
+
+    # :io.format("~p~n", [status_flags])
+    # :io.format("BBBCCCBBBBBBBB ~p~n", [rest])
+    # :io.format("info ~p~n", [info])
 
     ok_packet(
       affected_rows: affected_rows,
       last_insert_id: last_insert_id,
       status_flags: status_flags,
       num_warnings: num_warnings,
-      info: info
+      info: nil
+      # TODO:
+      #  This generates BINARY CREATED warnings, let's see how to get rid of it
+      #  later
+      #info: info
     )
   end
 
@@ -354,7 +416,7 @@ defmodule MyXQL.Protocol do
     end
   end
 
-  def decode_com_stmt_prepare_response(<<rest::binary>>, "", :initial) do
+  def decode_com_stmt_prepare_response(rest, "", :initial) do
     {:halt, decode_generic_response(rest)}
   end
 
@@ -456,11 +518,85 @@ defmodule MyXQL.Protocol do
   end
 
   def decode_column_def(<<3, "def", rest::binary>>) do
-    {_schema, rest} = take_string_lenenc(rest)
-    {_table, rest} = take_string_lenenc(rest)
-    {_org_table, rest} = take_string_lenenc(rest)
-    {name, rest} = take_string_lenenc(rest)
-    {_org_name, rest} = take_string_lenenc(rest)
+    # :io.format("rest ~p~n", [rest])
+    
+    {_schema, schema_end} =
+      case rest do
+        <<0xFC, int::uint2, _rest::binary>> ->
+          {int, int + 3 + 1}
+        <<0xFD, int::uint3, _rest::binary>> ->
+          {int, int + 4 + 1}
+        <<0xFE, int::uint8, _rest::binary>> ->
+          {int, int + 9 + 1}
+        <<int::uint1, _rest::binary>> ->
+          {int, int + 1}
+      end
+
+    # :io.format("schema_end ~p~n", [schema_end])
+    # <<offt::binary-size(schema_end), s::binary-size(schema), data::binary>> = rest
+    # :io.format("schema name ~p~n", [s])
+
+    {_table_id, table_end} =
+      case rest do
+        <<_offt::binary-size(schema_end), 0xFC, int::uint2, _rest::binary>> ->
+          {int, int + schema_end + 2}
+        <<_offt::binary-size(schema_end), 0xFD, int::uint3, _rest::binary>> ->
+          {int, int + schema_end + 4}
+        <<_offt::binary-size(schema_end), 0xFE, int::uint8, _rest::binary>> ->
+          {int, int + schema_end + 9}
+        <<_offt::binary-size(schema_end), int::uint1, _rest::binary>> ->
+          {int, int + schema_end + 1}
+      end
+
+    # <<offt::binary-size(schema_end), s::binary-size(table_id), data::binary>> = rest
+    # :io.format("table name ~p~n", [s])
+
+    {_org_table_id, org_table_end} =
+      case rest do
+        <<_offt::binary-size(table_end), 0xFC, int::uint2, _rest::binary>> ->
+          {int, int + table_end + 2}
+        <<_offt::binary-size(table_end), 0xFD, int::uint3, _rest::binary>> ->
+          {int, int + table_end + 4}
+        <<_offt::binary-size(table_end), 0xFE, int::uint8, _rest::binary>> ->
+          {int, int + table_end + 9}
+        <<_offt::binary-size(table_end), int::uint1, _rest::binary>> ->
+          {int, int + table_end + 1}
+      end
+
+    # :io.format("table_end ~p~n", [table_end])
+    # :io.format("org_table_end ~p~n", [org_table_end])
+
+    # offset = offset + org_table_end
+    {name_id, name_end} =
+      case rest do
+        <<_offt::binary-size(org_table_end), 0xFC, int::uint2, _rest::binary>> ->
+          {int, int + org_table_end + 2}
+        <<_offt::binary-size(org_table_end), 0xFD, int::uint3, _rest::binary>> ->
+          {int, int + org_table_end + 4}
+        <<_offt::binary-size(org_table_end), 0xFE, int::uint8, _rest::binary>> ->
+          {int, int + org_table_end + 9}
+        <<_offt::binary-size(org_table_end), int::uint1, _rest::binary>> ->
+          {int, int + org_table_end + 1}
+      end
+
+    offset = name_end - org_table_end - name_id
+    <<_offt::binary-size(org_table_end), _s::binary-size(1), name::binary-size(offset), _data::binary>> = rest
+    # :io.format("my  name ~p~n", [name])
+
+    {_org_name_id, org_name_end} =
+      case rest do
+        <<_offt::binary-size(name_end), 0xFC, int::uint2, _rest::binary>> ->
+          {int, int + name_end + 2}
+        <<_offt::binary-size(name_end), 0xFD, int::uint3, _rest::binary>> ->
+          {int, int + name_end + 4}
+        <<_offt::binary-size(name_end), 0xFE, int::uint8, _rest::binary>> ->
+          {int, int + name_end + 9}
+        <<_offt::binary-size(name_end), int::uint1, _rest::binary>> ->
+          {int, int + name_end + 1}
+      end
+
+    <<_ifft::binary-size(org_name_end), data::binary>> = rest
+    # :io.format("flags ~p~n", [data])
 
     <<
       0x0C,
@@ -470,7 +606,25 @@ defmodule MyXQL.Protocol do
       flags::uint2,
       _decimals::uint1,
       0::uint2
-    >> = rest
+    >> = data
+    
+    
+    # {_schema, rest} = take_string_lenenc(rest)
+    # {_table, rest} = take_string_lenenc(rest)
+    # {_org_table, rest} = take_string_lenenc(rest)
+    # {name, rest} = take_string_lenenc(rest)
+    # # :io.format("name ~p~n", [name])
+    # {_org_name, rest} = take_string_lenenc(rest)
+
+    # <<
+    #   0x0C,
+    #   _character_set::uint2,
+    #   column_length::uint4,
+    #   type::uint1,
+    #   flags::uint2,
+    #   _decimals::uint1,
+    #   0::uint2
+    # >> = rest
 
     column_def(
       name: name,
@@ -480,12 +634,12 @@ defmodule MyXQL.Protocol do
       unsigned?: has_column_flag?(flags, :unsigned_flag)
     )
   end
-
-  defp decode_resultset(payload, _next_data, :initial, _row_decoder) do
+  
+  defp decode_resultset(<<payload::binary>>, _next_data, :initial, _row_decoder) do
     {:cont, {:column_defs, decode_int_lenenc(payload), []}}
   end
 
-  defp decode_resultset(payload, _next_data, {:column_defs, num_columns, acc}, _row_decoder) do
+  defp decode_resultset(<<payload::binary>>, _next_data, {:column_defs, num_columns, acc}, _row_decoder) do
     column_def = decode_column_def(payload)
     acc = [column_def | acc]
 

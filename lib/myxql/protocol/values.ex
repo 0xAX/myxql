@@ -94,9 +94,13 @@ defmodule MyXQL.Protocol.Values do
 
   # Text values
 
-  def decode_text_row(values, column_defs) do
+  def decode_text_row(<<values::binary>>, column_defs) do
     types = Enum.map(column_defs, &column_def_to_type/1)
     decode_text_row(values, types, [])
+  end
+
+  defp decode_text_row(<<>>, _column_type, acc) do
+    Enum.reverse(acc)
   end
 
   # null value
@@ -105,13 +109,37 @@ defmodule MyXQL.Protocol.Values do
   end
 
   defp decode_text_row(<<values::binary>>, [type | tail], acc) do
-    {string, rest} = take_string_lenenc(values)
+    # rest <<6,45,49,51,46,51,55>>
+    # string <<"-13.37">>
+    # rest <<>>
+    # rest <<5,49,51,46,51,55>>
+    # string <<"13.37">>
+    # rest <<>>
+    # rest <<5,49,51,46,51,55>>
+    # string <<"13.37">>
+    # rest <<>>
+
+    {value_offset, value_end} =
+      case values do
+        <<0xFC, int::uint2, _rest::binary>> ->
+          {3, int}
+        <<0xFD, int::uint3, _rest::binary>> ->
+          {4, int}
+        <<0xFE, int::uint8, _rest::binary>> ->
+          {9, int}
+        <<int::uint1, _rest::binary>> ->
+          {1, int}
+      end
+
+    # :io.format("value_offset ~p~n", [value_offset])
+    # :io.format("value_end ~p~n", [value_end])
+    <<_offt::binary-size(value_offset), string::binary-size(value_end), rest::binary>> = values
+    # :io.format("rest ~p~n", [values])
+    # {string, rest} = take_string_lenenc(values)
+    # :io.format("string ~p~n", [string])
+    # :io.format("rest ~p~n", [rest])
     value = decode_text_value(string, type)
     decode_text_row(rest, tail, [value | acc])
-  end
-
-  defp decode_text_row("", _column_type, acc) do
-    Enum.reverse(acc)
   end
 
   def decode_text_value(value, type)

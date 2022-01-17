@@ -31,11 +31,60 @@ defmodule MyXQL.Protocol.Types do
     integer
   end
 
-  def take_int_lenenc(<<int::uint1, rest::binary>>) when int < 251, do: {int, rest}
-  def take_int_lenenc(<<0xFC, int::uint2, rest::binary>>), do: {int, rest}
-  def take_int_lenenc(<<0xFD, int::uint3, rest::binary>>), do: {int, rest}
-  def take_int_lenenc(<<0xFE, int::uint8, rest::binary>>), do: {int, rest}
+  def take_int_lenenc(binary) do
+    binary_size_1 = :erlang.byte_size(binary) - 1
+    binary_size_2 = :erlang.byte_size(binary) - 2 - 1
+    binary_size_3 = :erlang.byte_size(binary) - 3 - 1
+    binary_size_8 = :erlang.byte_size(binary) - 8 - 1
+    case binary do
+      <<int::uint1, rest::binary-size(binary_size_1)>> when int < 251 ->
+        {int, rest}
+      <<0xFC, int::uint2, rest::binary-size(binary_size_2)>> ->
+        {int, rest}
+      <<0xFD, int::uint3, rest::binary-size(binary_size_3)>> ->
+        {int, rest}
+      <<0xFE, int::uint8, rest::binary-size(binary_size_8)>> ->
+        {int, rest}
+    end
+    # {rest, rest}
+  end
+  
+  # def take_int_lenenc(<<int::uint1, rest::binary>>) when int < 251, do: {int, rest}
+  # def take_int_lenenc(<<0xFC, int::uint2, rest::binary>>), do: {int, rest}
+  # def take_int_lenenc(<<0xFD, int::uint3, rest::binary>>), do: {int, rest}
+  # def take_int_lenenc(<<0xFE, int::uint8, rest::binary>>), do: {int, rest}
 
+  # def take_int_lenenc_offset(<<>>, _), do: 0
+  # def take_int_lenenc_offset(binary, offset) do #when int < 251 do
+  #   if offset != 0 do
+  #     case binary do
+  #       <<_off::binary-size(offset), int::uint1, _rest::binary>> when int < 251 ->
+  #         int + 1
+  #       <<_off::binary-size(offset), 0xFC, int::uint2, _rest::binary>> when int < 251 ->
+  #         int + 1
+  #       <<_off::binary-size(offset), 0xFD, int::uint3, _rest::binary>> when int < 251 ->
+  #         int + 1
+  #       <<_off::binary-size(offset), 0xFE, int::uint8, _rest::binary>> when int < 251 ->
+  #         int + 1
+  #     end
+  #   else
+  #     case binary do
+  #       <<int::uint1, _rest::binary>> when int < 251 ->
+  #         int + 1
+  #       <<0xFC, int::uint2, _rest::binary>> when int < 251 ->
+  #         int + 2
+  #       <<0xFD, int::uint3, _rest::binary>> when int < 251 ->
+  #         int + 3
+  #       <<0xFE, int::uint8, _rest::binary>> when int < 251 ->
+  #         int + 8
+  #     end
+  #   end
+  # end
+
+  # def take_int_lenenc(<<0xFC, int::uint2, rest::binary>>, offset), do: int + 2
+  # def take_int_lenenc(<<0xFD, int::uint3, rest::binary>>, offset), do: int + 3
+  # def take_int_lenenc(<<0xFE, int::uint8, rest::binary>>, offset), do: int + 4
+  
   # https://dev.mysql.com/doc/internals/en/string.html#packet-Protocol::FixedLengthString
   defmacro string(size) do
     quote do
@@ -54,9 +103,18 @@ defmodule MyXQL.Protocol.Types do
     rest
   end
 
+  # def take_string_lenenc_offset(<<>>, _), do: 0
+  # def take_string_lenenc_offset(binary, offset) do
+  #   :io.format("offset ~p~n", [offset])
+  #   :io.format("binary ~p~n", [binary])
+  #   r = take_int_lenenc_offset(binary, offset)
+  #   :io.format("r ~p~n", [r])
+  # end
+
   def take_string_lenenc(binary) do
     {size, rest} = take_int_lenenc(binary)
-    <<string::string(size), rest::binary>> = rest
+    rest_size = :erlang.byte_size(rest) - size
+    <<string::string(size), rest::binary-size(rest_size)>> = rest
     {string, rest}
   end
 
