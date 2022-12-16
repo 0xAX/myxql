@@ -421,6 +421,9 @@ defmodule MyXQL.Connection do
     end
   end
 
+  defp maybe_disconnect(exception, "COMMIT", state) do
+    {:error, state}
+  end
   defp maybe_disconnect(exception, state) do
     %MyXQL.Error{mysql: %{code: code}} = exception
 
