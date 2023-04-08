@@ -27,7 +27,7 @@ defmodule MyXQL.Protocol.Types do
   def encode_int_lenenc(int) when int < 0xFFFFFFFFFFFFFFFF, do: <<0xFE, int::uint8()>>
 
   def decode_int_lenenc(binary) do
-    {integer, ""} = take_int_lenenc(binary)
+    {integer, ""} = MyXQL.Protocol.ValuesNif.take_int_lenenc_nif(binary)
     integer
   end
 
@@ -50,12 +50,12 @@ defmodule MyXQL.Protocol.Types do
   end
 
   def decode_string_lenenc(binary) do
-    {_size, rest} = take_int_lenenc(binary)
+    {_size, rest} = MyXQL.Protocol.ValuesNif.take_int_lenenc_nif(binary)
     rest
   end
 
   def take_string_lenenc(binary) do
-    {size, rest} = take_int_lenenc(binary)
+    {size, rest} = MyXQL.Protocol.ValuesNif.take_int_lenenc_nif(binary)
     <<string::string(size), rest::binary>> = rest
     {string, rest}
   end

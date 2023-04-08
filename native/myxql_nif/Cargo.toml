@@ -1,0 +1,13 @@
+[package]
+name = "myxql_nif"
+version = "0.0.1"
+authors = []
+edition = "2018"
+
+[lib]
+name = "myxql_nif"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.22.0"
